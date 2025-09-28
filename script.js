@@ -4,27 +4,22 @@ class EstonianMapApp {
         this.map = null;
         this.markers = [];
         this.points = [];
+        this.categories = [];
         this.currentEditId = null;
         this.isAddingPoint = false;
-        
-        // Kategooriate ikoonid
-        this.categoryIcons = {
-            mansion: '🏰',
-            architecture: '🏛️',
-            swimming: '🏊',
-            restaurant: '🍽️',
-            museum: '🏛️',
-            monument: '🗿'
-        };
+        this.currentEditCategoryId = null;
         
         this.init();
     }
     
     init() {
         this.loadData();
+        this.loadCategories();
         this.initMap();
         this.bindEvents();
         this.loadSampleData();
+        this.initTouchSupport();
+        this.setupKeyboardSupport();
     }
     
     // Kaardi initsialiseerimine
@@ -44,6 +39,14 @@ class EstonianMapApp {
         this.map.on('click', (e) => {
             if (this.isAddingPoint) {
                 this.setCoordinates(e.latlng.lat, e.latlng.lng);
+            }
+        });
+        
+        // Touch tugi tahvlearvutitele
+        this.map.on('touchstart', (e) => {
+            // Vältida kaardi liigutamist kui lisame punkti
+            if (this.isAddingPoint) {
+                e.originalEvent.preventDefault();
             }
         });
     }
@@ -86,6 +89,21 @@ class EstonianMapApp {
             this.closeModal('editModal');
         });
         
+        // Category management
+        document.getElementById('manageCategoriesBtn').addEventListener('click', () => {
+            this.openCategoryModal();
+        });
+        
+        document.getElementById('closeCategoryModal').addEventListener('click', () => {
+            this.closeModal('categoryModal');
+        });
+        
+        // Category form
+        document.getElementById('categoryForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveCategory();
+        });
+        
         // Modal sulgemine klikkides väljaspool
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
@@ -102,9 +120,33 @@ class EstonianMapApp {
         }
     }
     
+    // Kategooriate laadimine
+    loadCategories() {
+        const saved = localStorage.getItem('estonianMapCategories');
+        if (saved) {
+            this.categories = JSON.parse(saved);
+        } else {
+            // Vaikimisi kategooriad
+            this.categories = [
+                { id: 'mansion', name: 'Mõis', icon: '🏰', color: '#8B4513' },
+                { id: 'architecture', name: 'Arhitektuur', icon: '🏛️', color: '#4169E1' },
+                { id: 'swimming', name: 'Ujumiskoht', icon: '🏊', color: '#00CED1' },
+                { id: 'restaurant', name: 'Söögikoht', icon: '🍽️', color: '#FF6347' },
+                { id: 'museum', name: 'Muuseum', icon: '🏛️', color: '#9370DB' },
+                { id: 'monument', name: 'Monument', icon: '🗿', color: '#696969' }
+            ];
+            this.saveCategories();
+        }
+    }
+    
     // Andmete salvestamine
     saveData() {
         localStorage.setItem('estonianMapPoints', JSON.stringify(this.points));
+    }
+    
+    // Kategooriate salvestamine
+    saveCategories() {
+        localStorage.setItem('estonianMapCategories', JSON.stringify(this.categories));
     }
     
     // Näidisandmete laadimine
@@ -171,6 +213,10 @@ class EstonianMapApp {
             ];
             this.saveData();
         }
+        
+        // Uuenda kategooriate valikud ja filterid
+        this.updateCategorySelect();
+        this.updateFilters();
         this.renderMarkers();
     }
     
@@ -205,10 +251,12 @@ class EstonianMapApp {
     createCustomIcon(point) {
         const statusClass = `marker-${point.status}`;
         const categoryClass = `marker-${point.category}`;
+        const category = this.categories.find(c => c.id === point.category);
+        const icon = category ? category.icon : '📍';
         
         const iconHtml = `
-            <div class="custom-marker ${statusClass} ${categoryClass}">
-                ${this.categoryIcons[point.category]}
+            <div class="custom-marker ${statusClass} ${categoryClass}" style="background-color: ${category ? category.color : '#667eea'}">
+                ${icon}
             </div>
         `;
         
@@ -321,6 +369,16 @@ class EstonianMapApp {
         document.getElementById('pointLng').value = center.lng.toFixed(6);
         
         this.showModal('editModal');
+        
+        // Force focus on first input for tablet mode
+        setTimeout(() => {
+            const firstInput = document.getElementById('pointName');
+            if (firstInput) {
+                firstInput.focus();
+                // Trigger click to ensure onscreen keyboard shows
+                firstInput.click();
+            }
+        }, 300);
     }
     
     // Punkti muutmise modali avamine
@@ -340,6 +398,15 @@ class EstonianMapApp {
         document.getElementById('pointLng').value = point.lng;
         
         this.showModal('editModal');
+        
+        // Force focus on first input for tablet mode
+        setTimeout(() => {
+            const firstInput = document.getElementById('pointName');
+            if (firstInput) {
+                firstInput.focus();
+                firstInput.click();
+            }
+        }, 300);
     }
     
     // Koordinaatide seadmine klikkimisel
@@ -425,6 +492,288 @@ class EstonianMapApp {
     closeModal(modalId) {
         document.getElementById(modalId).classList.remove('show');
         this.isAddingPoint = false;
+    }
+    
+    // Touch tugi tahvlearvutitele
+    initTouchSupport() {
+        // Vältida kaardi zoomimist kahekordse puudutamisega
+        this.map.doubleClickZoom.disable();
+        
+        // Lisada touch tugi märkeritele
+        this.map.on('popupopen', () => {
+            // Vältida kaardi liigutamist kui popup on avatud
+            this.map.dragging.disable();
+        });
+        
+        this.map.on('popupclose', () => {
+            // Lubada kaardi liigutamine kui popup on suletud
+            this.map.dragging.enable();
+        });
+        
+        // Responsiivne sidebar tahvlearvutitele
+        this.handleOrientationChange();
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => this.handleOrientationChange(), 100);
+        });
+        
+        window.addEventListener('resize', () => {
+            this.handleOrientationChange();
+        });
+    }
+    
+    // Orienteerimise muutuse käsitlemine
+    handleOrientationChange() {
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const isTablet = window.innerWidth <= 1024 && window.innerWidth >= 768;
+        
+        if (isTablet) {
+            const sidebar = document.querySelector('.sidebar');
+            if (isLandscape) {
+                // Horisontaalasend - sidebar kõrvale
+                sidebar.style.position = 'relative';
+                sidebar.style.transform = 'translateX(0)';
+                sidebar.classList.remove('collapsed');
+            } else {
+                // Vertikaalasend - sidebar ülevalt alla
+                sidebar.style.position = 'absolute';
+                sidebar.classList.add('collapsed');
+            }
+        }
+        
+        // Kaardi uuendamine orientatsiooni muutuse järel
+        setTimeout(() => {
+            if (this.map) {
+                this.map.invalidateSize();
+            }
+        }, 200);
+    }
+    
+    // Kategooriate modali avamine
+    openCategoryModal() {
+        this.currentEditCategoryId = null;
+        this.showModal('categoryModal');
+        this.renderCategoriesList();
+        this.updateCategorySelect();
+    }
+    
+    // Kategooriate nimekirja renderimine
+    renderCategoriesList() {
+        const container = document.getElementById('categoriesList');
+        container.innerHTML = '';
+        
+        this.categories.forEach(category => {
+            const categoryItem = document.createElement('div');
+            categoryItem.className = 'category-item';
+            categoryItem.innerHTML = `
+                <div class="category-info">
+                    <div class="category-icon" style="background-color: ${category.color}">
+                        ${category.icon}
+                    </div>
+                    <div class="category-details">
+                        <div class="category-name">${category.name}</div>
+                        <div class="category-id">ID: ${category.id}</div>
+                    </div>
+                </div>
+                <div class="category-actions">
+                    <button class="edit-category-btn" onclick="app.editCategory('${category.id}')">
+                        <i class="fas fa-edit"></i> Muuda
+                    </button>
+                    <button class="delete-category-btn" onclick="app.deleteCategory('${category.id}')">
+                        <i class="fas fa-trash"></i> Kustuta
+                    </button>
+                </div>
+            `;
+            container.appendChild(categoryItem);
+        });
+    }
+    
+    // Kategooria salvestamine
+    saveCategory() {
+        const name = document.getElementById('categoryName').value;
+        const icon = document.getElementById('categoryIcon').value;
+        const color = document.getElementById('categoryColor').value;
+        
+        if (!name || !icon) {
+            alert('Palun täida kõik väljad');
+            return;
+        }
+        
+        if (this.currentEditCategoryId) {
+            // Muudame olemasolevat kategooriat
+            const category = this.categories.find(c => c.id === this.currentEditCategoryId);
+            if (category) {
+                category.name = name;
+                category.icon = icon;
+                category.color = color;
+            }
+        } else {
+            // Lisame uue kategooria
+            const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const newCategory = { id, name, icon, color };
+            this.categories.push(newCategory);
+        }
+        
+        this.saveCategories();
+        this.renderCategoriesList();
+        this.updateCategorySelect();
+        this.updateFilters();
+        this.renderMarkers();
+        
+        // Tühjenda vorm
+        document.getElementById('categoryForm').reset();
+        document.getElementById('categoryColor').value = '#667eea';
+        this.currentEditCategoryId = null;
+    }
+    
+    // Kategooria muutmine
+    editCategory(id) {
+        const category = this.categories.find(c => c.id === id);
+        if (!category) return;
+        
+        this.currentEditCategoryId = id;
+        document.getElementById('categoryName').value = category.name;
+        document.getElementById('categoryIcon').value = category.icon;
+        document.getElementById('categoryColor').value = category.color;
+    }
+    
+    // Kategooria kustutamine
+    deleteCategory(id) {
+        if (confirm('Kas oled kindel, et soovid selle kategooria kustutada? Kõik selle kategooria punktid jäävad ilma kategooriata.')) {
+            this.categories = this.categories.filter(c => c.id !== id);
+            this.saveCategories();
+            this.renderCategoriesList();
+            this.updateCategorySelect();
+            this.updateFilters();
+            this.renderMarkers();
+        }
+    }
+    
+    // Kategooriate valiku uuendamine
+    updateCategorySelect() {
+        const select = document.getElementById('pointCategory');
+        select.innerHTML = '';
+        
+        this.categories.forEach(category => {
+            const option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.name;
+            select.appendChild(option);
+        });
+    }
+    
+    // Filterite uuendamine
+    updateFilters() {
+        const filterSection = document.querySelector('.filter-section');
+        const existingFilters = filterSection.querySelectorAll('.filter-option');
+        existingFilters.forEach(filter => filter.remove());
+        
+        this.categories.forEach(category => {
+            const filterOption = document.createElement('label');
+            filterOption.className = 'filter-option';
+            filterOption.innerHTML = `
+                <input type="checkbox" id="filter-${category.id}" checked>
+                <span class="checkmark"></span>
+                <i class="fas fa-map-marker-alt" style="color: ${category.color}"></i> ${category.name}
+                <span class="category-count" id="count-${category.id}">0</span>
+            `;
+            filterSection.appendChild(filterOption);
+            
+            // Add event listener
+            filterOption.querySelector('input').addEventListener('change', () => this.applyFilters());
+        });
+        
+        this.updateCategoryCounts();
+    }
+    
+    // Kategooriate loendite uuendamine
+    updateCategoryCounts() {
+        this.categories.forEach(category => {
+            const count = this.points.filter(p => p.category === category.id).length;
+            const countElement = document.getElementById(`count-${category.id}`);
+            if (countElement) {
+                countElement.textContent = count;
+            }
+        });
+    }
+    
+    // Onscreen keyboard tugi
+    setupKeyboardSupport() {
+        // Tuvasta Windows tablet mode
+        this.detectTabletMode();
+        
+        const textInputs = document.querySelectorAll('input[type="text"], textarea, input[type="number"]');
+        textInputs.forEach(input => {
+            // Force focus for onscreen keyboard
+            input.addEventListener('focus', () => {
+                this.handleInputFocus(input);
+            });
+            
+            // Touch event for better tablet support
+            input.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+                input.focus();
+            });
+            
+            // Click event as fallback
+            input.addEventListener('click', () => {
+                input.focus();
+            });
+        });
+        
+        // Listen for virtual keyboard events
+        this.setupVirtualKeyboardDetection();
+    }
+    
+    // Tuvasta Windows tablet mode
+    detectTabletMode() {
+        // Check for Windows tablet mode indicators
+        const isTabletMode = window.navigator.maxTouchPoints > 1 && 
+                           (window.navigator.userAgent.includes('Windows') || 
+                            window.navigator.userAgent.includes('Lenovo'));
+        
+        if (isTabletMode) {
+            document.body.classList.add('tablet-mode');
+            console.log('Tablet mode detected');
+        }
+    }
+    
+    // Handle input focus for onscreen keyboard
+    handleInputFocus(input) {
+        // Force input to be visible
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // For Windows tablets, ensure the input gets focus
+        setTimeout(() => {
+            input.focus();
+            
+            // Trigger input event to ensure keyboard shows
+            const event = new Event('input', { bubbles: true });
+            input.dispatchEvent(event);
+        }, 100);
+        
+        // Additional delay for slow devices
+        setTimeout(() => {
+            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 500);
+    }
+    
+    // Setup virtual keyboard detection
+    setupVirtualKeyboardDetection() {
+        let initialViewportHeight = window.innerHeight;
+        
+        window.addEventListener('resize', () => {
+            const currentHeight = window.innerHeight;
+            const heightDifference = initialViewportHeight - currentHeight;
+            
+            // If height decreased significantly, virtual keyboard is likely open
+            if (heightDifference > 150) {
+                document.body.classList.add('keyboard-open');
+                console.log('Virtual keyboard detected as open');
+            } else {
+                document.body.classList.remove('keyboard-open');
+                console.log('Virtual keyboard detected as closed');
+            }
+        });
     }
 }
 
