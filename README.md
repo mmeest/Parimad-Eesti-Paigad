@@ -117,3 +117,5 @@ Täisfunktsionaalne kaartirakendus Eesti huvitavate kohtade hallamiseks ja jälg
 ## Litsents
 
 MIT License - vaba kasutamine ja modifitseerimine.
+
+

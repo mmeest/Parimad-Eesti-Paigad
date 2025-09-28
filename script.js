@@ -430,3 +430,5 @@ class EstonianMapApp {
 
 // Rakenduse käivitamine
 const app = new EstonianMapApp();
+
+
